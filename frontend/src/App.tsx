@@ -10,6 +10,14 @@ interface CinResult {
   warnings?: { field: string; message: string }[]
 }
 
+interface HistoryEntry {
+  id: string
+  fileName: string
+  time: string
+  result: CinResult
+  isRejected: boolean
+}
+
 const FIELD_LABELS: { key: keyof Omit<CinResult, 'warnings'>; label: string }[] = [
   { key: 'nom', label: 'Nom' },
   { key: 'prenom', label: 'Prénom' },
@@ -25,6 +33,53 @@ function formatFileMeta(file: File): string {
   return `${file.name}  •  ${sizeLabel}  •  déposé à ${time}`
 }
 
+// Coloration syntaxique simple du JSON, sans dépendance externe.
+function renderHighlightedJson(jsonString: string) {
+  const tokenRegex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g
+
+  const nodes: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let key = 0
+
+  while ((match = tokenRegex.exec(jsonString)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(
+        <span className="json-punct" key={key++}>
+          {jsonString.slice(lastIndex, match.index)}
+        </span>
+      )
+    }
+
+    const token = match[0]
+    let className = 'json-number'
+    if (/^"/.test(token)) {
+      className = /:\s*$/.test(token) ? 'json-key' : 'json-string'
+    } else if (/true|false/.test(token)) {
+      className = 'json-bool'
+    } else if (/null/.test(token)) {
+      className = 'json-null'
+    }
+
+    nodes.push(
+      <span className={className} key={key++}>
+        {token}
+      </span>
+    )
+    lastIndex = tokenRegex.lastIndex
+  }
+
+  if (lastIndex < jsonString.length) {
+    nodes.push(
+      <span className="json-punct" key={key++}>
+        {jsonString.slice(lastIndex)}
+      </span>
+    )
+  }
+
+  return nodes
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -34,6 +89,13 @@ function App() {
   const [result, setResult] = useState<CinResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  const [analyzedCount, setAnalyzedCount] = useState(0)
+  const [rejectedCount, setRejectedCount] = useState(0)
+  const [warningsCount, setWarningsCount] = useState(0)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
 
   const loadFile = (file: File) => {
     setSelectedFile(file)
@@ -73,12 +135,29 @@ function App() {
         body: formData,
       })
 
-      const data = await response.json()
+      const data: CinResult = await response.json()
 
       if (!response.ok) {
-        setErrorMessage(data.error ?? 'Une erreur est survenue.')
+        setErrorMessage((data as unknown as { error?: string }).error ?? 'Une erreur est survenue.')
       } else {
         setResult(data)
+
+        const isRejected = FIELD_LABELS.every((f) => data[f.key] === null)
+
+        setAnalyzedCount((n) => n + 1)
+        if (isRejected) setRejectedCount((n) => n + 1)
+        setWarningsCount((n) => n + (data.warnings?.length ?? 0))
+
+        setHistory((h) => [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            fileName: selectedFile.name,
+            time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+            result: data,
+            isRejected,
+          },
+          ...h,
+        ])
       }
     } catch {
       setErrorMessage('Impossible de contacter le serveur.')
@@ -87,13 +166,13 @@ function App() {
     }
   }
 
-  const handleDownloadJson = () => {
-    if (!result) return
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+  const handleDownloadJson = (data: CinResult | null, filenameHint?: string) => {
+    if (!data) return
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'resultat-cin.json'
+    link.download = filenameHint ? `resultat-${filenameHint}.json` : 'resultat-cin.json'
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -127,12 +206,99 @@ function App() {
         <div className="topbar-brand">
           <span className="topbar-mark">◈</span>
           <div>
-            <div className="topbar-name">Lecture automatisée de CIN</div>
+            <div className="topbar-name">LECTEUR CIN</div>
             <div className="topbar-subtitle">Poste de vérification documentaire</div>
           </div>
         </div>
-        <span className="badge-specimen">Specimen fictif</span>
       </header>
+
+      <div className="toolbar">
+        <div className="stats-group">
+          <div className="stat-chip">
+            <span className="stat-value">{analyzedCount}</span>
+            <span className="stat-label">Analysées</span>
+          </div>
+          <div className="stat-chip">
+            <span className="stat-value">{rejectedCount}</span>
+            <span className="stat-label">Rejetées</span>
+          </div>
+          <div className="stat-chip">
+            <span className="stat-value">{warningsCount}</span>
+            <span className="stat-label">Avertissements</span>
+          </div>
+        </div>
+
+        <div className="toolbar-actions">
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => setShowHistory((v) => !v)}
+          >
+            Historique ({history.length})
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn toolbar-btn-primary"
+            onClick={() => handleCopyJson()}
+            disabled={!result}
+          >
+            {copied ? 'Copié' : 'Copier le JSON'}
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn toolbar-btn-primary"
+            onClick={() => handleDownloadJson(result)}
+            disabled={!result}
+          >
+            Télécharger le JSON
+          </button>
+        </div>
+      </div>
+
+      {showHistory && (
+        <section className="history-panel">
+          <div className="panel-header-row">
+            <span className="panel-label">Historique de session</span>
+            <span className="history-hint">Effacé au rechargement de la page</span>
+          </div>
+
+          {history.length === 0 ? (
+            <p className="empty-state">Aucune analyse effectuée pour l'instant dans cette session.</p>
+          ) : (
+            <div className="history-list">
+              {history.map((entry) => (
+                <div className="history-item" key={entry.id}>
+                  <button
+                    type="button"
+                    className="history-item-header"
+                    onClick={() => setExpandedEntryId((id) => (id === entry.id ? null : entry.id))}
+                  >
+                    <span className="history-item-name">{entry.fileName}</span>
+                    <span className="history-item-time">{entry.time}</span>
+                    <span className={entry.isRejected ? 'read-badge read-no' : 'read-badge read-ok'}>
+                      {entry.isRejected ? 'Rejetée' : 'Analysée'}
+                    </span>
+                  </button>
+                  {expandedEntryId === entry.id && (
+                    <div className="history-item-body">
+                      <pre className="json-block json-block-compact">
+                        {renderHighlightedJson(JSON.stringify(entry.result, null, 2))}
+                      </pre>
+                      <button
+                        type="button"
+                        className="download-btn"
+                        onClick={() => handleDownloadJson(entry.result, entry.fileName)}
+                      >
+                        Télécharger
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <main className="console">
         <section className="panel capture-panel">
@@ -253,19 +419,18 @@ function App() {
           <section className="panel json-panel">
             <div className="panel-header-row">
               <span className="panel-label">Sortie JSON</span>
-              <div className="json-actions">
-                <button type="button" className="download-btn" onClick={handleCopyJson}>
-                  {copied ? 'Copié' : 'Copier le JSON'}
-                </button>
-                <button type="button" className="download-btn" onClick={handleDownloadJson}>
-                  Télécharger
-                </button>
-              </div>
             </div>
-            <pre className="json-block">{JSON.stringify(result, null, 2)}</pre>
+            <pre className="json-block">{renderHighlightedJson(JSON.stringify(result, null, 2))}</pre>
           </section>
         )}
       </main>
+
+      <footer className="app-footer">
+        <span>Lecteur CIN — projet de démonstration technique</span>
+        <a href="https://github.com/karkabasma-prog/cin-reader" target="_blank" rel="noreferrer">
+          github.com/karkabasma-prog/cin-reader
+        </a>
+      </footer>
     </div>
   )
 }
