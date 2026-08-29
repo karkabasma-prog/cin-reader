@@ -33,7 +33,6 @@ function formatFileMeta(file: File): string {
   return `${file.name}  •  ${sizeLabel}  •  déposé à ${time}`
 }
 
-// Coloration syntaxique simple du JSON, sans dépendance externe.
 function renderHighlightedJson(jsonString: string) {
   const tokenRegex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g
 
@@ -83,6 +82,8 @@ function renderHighlightedJson(jsonString: string) {
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [view, setView] = useState<'analyze' | 'history'>('analyze')
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -92,9 +93,7 @@ function App() {
 
   const [analyzedCount, setAnalyzedCount] = useState(0)
   const [rejectedCount, setRejectedCount] = useState(0)
-  const [warningsCount, setWarningsCount] = useState(0)
   const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [showHistory, setShowHistory] = useState(false)
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
 
   const loadFile = (file: File) => {
@@ -146,7 +145,6 @@ function App() {
 
         setAnalyzedCount((n) => n + 1)
         if (isRejected) setRejectedCount((n) => n + 1)
-        setWarningsCount((n) => n + (data.warnings?.length ?? 0))
 
         setHistory((h) => [
           {
@@ -200,8 +198,8 @@ function App() {
 
   const isDone = Boolean(result) || Boolean(errorMessage)
 
-  return (
-    <div className="page">
+    return (
+    <div className="app-root">
       <header className="topbar">
         <div className="topbar-brand">
           <span className="topbar-mark">◈</span>
@@ -212,225 +210,237 @@ function App() {
         </div>
       </header>
 
-      <div className="toolbar">
-        <div className="stats-group">
-          <div className="stat-chip">
-            <span className="stat-value">{analyzedCount}</span>
-            <span className="stat-label">Analysées</span>
-          </div>
-          <div className="stat-chip">
-            <span className="stat-value">{rejectedCount}</span>
-            <span className="stat-label">Rejetées</span>
-          </div>
-          <div className="stat-chip">
-            <span className="stat-value">{warningsCount}</span>
-            <span className="stat-label">Avertissements</span>
-          </div>
-        </div>
-
-        <div className="toolbar-actions">
+      <div className="shell">
+        <aside className="sidebar">
+                <nav className="sidebar-nav">
           <button
             type="button"
-            className="toolbar-btn"
-            onClick={() => setShowHistory((v) => !v)}
+            className={view === 'analyze' ? 'sidebar-link sidebar-link-active' : 'sidebar-link'}
+            onClick={() => setView('analyze')}
+          >
+            Accueil
+          </button>
+          <button
+            type="button"
+            className={view === 'history' ? 'sidebar-link sidebar-link-active' : 'sidebar-link'}
+            onClick={() => setView('history')}
           >
             Historique ({history.length})
           </button>
-          <button
-            type="button"
-            className="toolbar-btn toolbar-btn-primary"
-            onClick={() => handleCopyJson()}
-            disabled={!result}
-          >
-            {copied ? 'Copié' : 'Copier le JSON'}
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn toolbar-btn-primary"
-            onClick={() => handleDownloadJson(result)}
-            disabled={!result}
-          >
-            Télécharger le JSON
-          </button>
+        </nav>
+
+               </aside>
+
+        <div className="main-area">
+        <div className="stats-row">
+          <div className="stat-card">
+            <span className="stat-card-label">Analysées</span>
+            <span className="stat-card-value">{analyzedCount}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-card-label">Rejetées</span>
+            <span className="stat-card-value">{rejectedCount}</span>
+          </div>
+        </div>
+
+        {view === 'analyze' ? (
+          <main className="console">
+            <section className="panel capture-panel">
+              <div className="panel-header-row">
+                <span className="panel-label">Document déposé</span>
+              </div>
+
+              <label
+                className="viewfinder"
+                data-has-image={Boolean(previewUrl)}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+              >
+                <span className="corner corner-tl" />
+                <span className="corner corner-tr" />
+                <span className="corner corner-bl" />
+                <span className="corner corner-br" />
+
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Aperçu du document déposé" />
+                ) : (
+                  <span className="viewfinder-placeholder">
+                    Glisser-déposer une image, ou cliquer pour choisir un fichier
+                  </span>
+                )}
+
+                {isLoading && <span className="scan-line" />}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="visually-hidden-input"
+                />
+              </label>
+
+              {selectedFile && (
+                <p className="file-meta">{formatFileMeta(selectedFile)}</p>
+              )}
+
+              {selectedFile && !isDone && (
+                <button
+                  type="button"
+                  className="analyze-btn"
+                  onClick={handleAnalyze}
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Lecture en cours…' : 'Analyser le document'}
+                </button>
+              )}
+
+              {isDone && (
+                <div className="post-analysis-actions">
+                  <button type="button" className="secondary-btn" onClick={handleReset}>
+                    Effacer
+                  </button>
+                  <button type="button" className="analyze-btn" onClick={handleNewDocument}>
+                    Analyser un nouveau document
+                  </button>
+                </div>
+              )}
+            </section>
+
+            <section className="panel result-panel">
+              <div className="panel-header-row">
+                <span className="panel-label">Champs extraits</span>
+              </div>
+
+              {!result && !errorMessage && !isLoading && (
+                <p className="empty-state">
+                  Les champs lus apparaîtront ici une fois l'analyse lancée.
+                </p>
+              )}
+
+              {isLoading && (
+                <div className="skeleton-list">
+                  {FIELD_LABELS.map(({ key }) => (
+                    <div className="field-card skeleton-card" key={key} />
+                  ))}
+                </div>
+              )}
+
+              {errorMessage && (
+                <div className="alert-box">
+                  <span className="alert-label">Échec de la lecture</span>
+                  <p>{errorMessage}</p>
+                </div>
+              )}
+
+              {result && (
+                <div className="field-card-list">
+                  {FIELD_LABELS.map(({ key, label }) => {
+                    const value = result[key]
+                    const isRead = value !== null
+                    const warning = result.warnings?.find((w) => w.field === key)
+                    return (
+                      <div className="field-card" key={key} data-read={isRead}>
+                        <div className="field-card-top">
+                          <span className="field-card-label">{label}</span>
+                          <span className={isRead ? 'read-badge read-ok' : 'read-badge read-no'}>
+                            {isRead ? 'Vérifié' : 'Non lisible'}
+                          </span>
+                        </div>
+                        <div className="field-card-value-box" data-empty={!isRead}>
+                          <span className="field-card-icon">{isRead ? '✓' : '✕'}</span>
+                          <span>{isRead ? value : 'Non lisible'}</span>
+                        </div>
+                        {warning && <div className="field-warning">{warning.message}</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+
+            {result && (
+              <section className="panel json-panel">
+                <div className="panel-header-row">
+                  <span className="panel-label">Sortie JSON</span>
+                  <div className="json-actions">
+                    <button type="button" className="download-btn" onClick={handleCopyJson}>
+                      {copied ? 'Copié' : 'Copier'}
+                    </button>
+                    <button type="button" className="download-btn" onClick={() => handleDownloadJson(result)}>
+                      Télécharger
+                    </button>
+                  </div>
+                </div>
+                <pre className="json-block">{renderHighlightedJson(JSON.stringify(result, null, 2))}</pre>
+              </section>
+            )}
+          </main>
+        ) : (
+          <main className="history-view">
+            <div className="panel-header-row">
+              <span className="panel-label">Historique de session</span>
+              <span className="history-hint">Effacé au rechargement de la page</span>
+            </div>
+
+            {history.length === 0 ? (
+              <p className="empty-state">Aucune analyse effectuée pour l'instant dans cette session.</p>
+            ) : (
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>Fichier</th>
+                    <th>Statut</th>
+                    <th>Heure</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((entry) => (
+                    <>
+                      <tr key={entry.id}>
+                        <td>{entry.fileName}</td>
+                        <td>
+                          <span className={entry.isRejected ? 'read-badge read-no' : 'read-badge read-ok'}>
+                            {entry.isRejected ? 'Rejetée' : 'Analysée'}
+                          </span>
+                        </td>
+                        <td>{entry.time}</td>
+                        <td className="history-table-actions">
+                          <button
+                            type="button"
+                            className="table-action-btn"
+                            onClick={() => setExpandedEntryId((id) => (id === entry.id ? null : entry.id))}
+                          >
+                            {expandedEntryId === entry.id ? 'Masquer' : 'Voir'}
+                          </button>
+                          <button
+                            type="button"
+                            className="table-action-btn table-action-btn-primary"
+                            onClick={() => handleDownloadJson(entry.result, entry.fileName)}
+                          >
+                            Exporter
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedEntryId === entry.id && (
+                        <tr key={`${entry.id}-detail`}>
+                          <td colSpan={4}>
+                            <pre className="json-block json-block-compact">
+                              {renderHighlightedJson(JSON.stringify(entry.result, null, 2))}
+                            </pre>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </main>
+             )}
         </div>
       </div>
-
-      {showHistory && (
-        <section className="history-panel">
-          <div className="panel-header-row">
-            <span className="panel-label">Historique de session</span>
-            <span className="history-hint">Effacé au rechargement de la page</span>
-          </div>
-
-          {history.length === 0 ? (
-            <p className="empty-state">Aucune analyse effectuée pour l'instant dans cette session.</p>
-          ) : (
-            <div className="history-list">
-              {history.map((entry) => (
-                <div className="history-item" key={entry.id}>
-                  <button
-                    type="button"
-                    className="history-item-header"
-                    onClick={() => setExpandedEntryId((id) => (id === entry.id ? null : entry.id))}
-                  >
-                    <span className="history-item-name">{entry.fileName}</span>
-                    <span className="history-item-time">{entry.time}</span>
-                    <span className={entry.isRejected ? 'read-badge read-no' : 'read-badge read-ok'}>
-                      {entry.isRejected ? 'Rejetée' : 'Analysée'}
-                    </span>
-                  </button>
-                  {expandedEntryId === entry.id && (
-                    <div className="history-item-body">
-                      <pre className="json-block json-block-compact">
-                        {renderHighlightedJson(JSON.stringify(entry.result, null, 2))}
-                      </pre>
-                      <button
-                        type="button"
-                        className="download-btn"
-                        onClick={() => handleDownloadJson(entry.result, entry.fileName)}
-                      >
-                        Télécharger
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      <main className="console">
-        <section className="panel capture-panel">
-          <div className="panel-header-row">
-            <span className="panel-label">Document déposé</span>
-          </div>
-
-          <label
-            className="viewfinder"
-            data-has-image={Boolean(previewUrl)}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-          >
-            <span className="corner corner-tl" />
-            <span className="corner corner-tr" />
-            <span className="corner corner-bl" />
-            <span className="corner corner-br" />
-
-            {previewUrl ? (
-              <img src={previewUrl} alt="Aperçu du document déposé" />
-            ) : (
-              <span className="viewfinder-placeholder">
-                Glisser-déposer une image, ou cliquer pour choisir un fichier
-              </span>
-            )}
-
-            {isLoading && <span className="scan-line" />}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              className="visually-hidden-input"
-            />
-          </label>
-
-          {selectedFile && (
-            <p className="file-meta">{formatFileMeta(selectedFile)}</p>
-          )}
-
-          {selectedFile && !isDone && (
-            <button
-              type="button"
-              className="analyze-btn"
-              onClick={handleAnalyze}
-              disabled={isLoading}
-            >
-              {isLoading ? 'Lecture en cours…' : 'Analyser le document'}
-            </button>
-          )}
-
-          {isDone && (
-            <div className="post-analysis-actions">
-              <button type="button" className="secondary-btn" onClick={handleReset}>
-                Effacer
-              </button>
-              <button type="button" className="analyze-btn" onClick={handleNewDocument}>
-                Analyser un nouveau document
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="panel result-panel">
-          <div className="panel-header-row">
-            <span className="panel-label">Champs extraits</span>
-          </div>
-
-          {!result && !errorMessage && !isLoading && (
-            <p className="empty-state">
-              Les champs lus apparaîtront ici une fois l'analyse lancée.
-            </p>
-          )}
-
-          {isLoading && (
-            <div className="skeleton-list">
-              {FIELD_LABELS.map(({ key }) => (
-                <div className="field-card skeleton-card" key={key} />
-              ))}
-            </div>
-          )}
-
-          {errorMessage && (
-            <div className="alert-box">
-              <span className="alert-label">Échec de la lecture</span>
-              <p>{errorMessage}</p>
-            </div>
-          )}
-
-          {result && (
-            <div className="field-card-list">
-              {FIELD_LABELS.map(({ key, label }) => {
-                const value = result[key]
-                const isRead = value !== null
-                const warning = result.warnings?.find((w) => w.field === key)
-                return (
-                  <div className="field-card" key={key} data-read={isRead}>
-                    <div className="field-card-top">
-                      <span className="field-card-label">{label}</span>
-                      <span className={isRead ? 'read-badge read-ok' : 'read-badge read-no'}>
-                        {isRead ? 'Vérifié' : 'Non lisible'}
-                      </span>
-                    </div>
-                    <div className="field-card-value-box" data-empty={!isRead}>
-                      <span className="field-card-icon">{isRead ? '✓' : '✕'}</span>
-                      <span>{isRead ? value : 'Non lisible'}</span>
-                    </div>
-                    {warning && <div className="field-warning">{warning.message}</div>}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        {result && (
-          <section className="panel json-panel">
-            <div className="panel-header-row">
-              <span className="panel-label">Sortie JSON</span>
-            </div>
-            <pre className="json-block">{renderHighlightedJson(JSON.stringify(result, null, 2))}</pre>
-          </section>
-        )}
-      </main>
-
-      <footer className="app-footer">
-        <span>Lecteur CIN — projet de démonstration technique</span>
-        <a href="https://github.com/karkabasma-prog/cin-reader" target="_blank" rel="noreferrer">
-          github.com/karkabasma-prog/cin-reader
-        </a>
-      </footer>
     </div>
   )
 }
