@@ -52,22 +52,28 @@ const responseSchema = {
     date_naissance: { type: Type.STRING, nullable: true },
     numero_cin: { type: Type.STRING, nullable: true },
     date_fin_validite: { type: Type.STRING, nullable: true },
+    type_document: { type: Type.STRING, nullable: true },
   },
-  required: ["nom", "prenom", "date_naissance", "numero_cin", "date_fin_validite"],
+  required: ["nom", "prenom", "date_naissance", "numero_cin", "date_fin_validite", "type_document"],
 };
-
 
 
 const PROMPT = `
 Tu es un système d'extraction d'informations à partir d'une image de carte
 d'identité nationale (CIN) marocaine, recto uniquement, en caractères latins.
 
-Extrait uniquement les 5 champs suivants :
+Extrait les 5 champs suivants :
 - nom
 - prenom
 - date_naissance (au format JJ.MM.AAAA si visible)
 - numero_cin
 - date_fin_validite (au format JJ.MM.AAAA si visible)
+
+Indique également type_document, avec l'une de ces trois valeurs exactes :
+- "recto_cin" si l'image est bien le recto d'une CIN marocaine
+- "verso_cin" si l'image est le verso d'une CIN marocaine (présence d'une zone
+  de texte codé en bas du document, mentions "Fille de" / "Fils de", adresse)
+- "autre" si l'image n'est ni l'un ni l'autre
 
 Règles strictes :
 1. Si un champ n'est pas clairement lisible sur l'image, retourne la valeur null
@@ -79,17 +85,18 @@ Règles strictes :
    imparfait n'est PAS une raison de retourner null si le texte reste lisible.
    Fais de ton mieux pour lire le texte visible malgré ces imperfections.
 4. Ignore complètement le texte en arabe, ne l'utilise pas pour deviner un champ.
-5. Si l'image ne semble pas être une CIN marocaine (recto), retourne null pour
-   tous les champs.
-6. Ne complète et ne corrige jamais un champ partiellement visible en te basant
-   sur ce qui te semblerait "logique" ou "habituel" (ex: ne complète pas une
-   date partielle comme "22/" en supposant une année plausible).
+5. Si l'image est le verso d'une CIN (type_document = "verso_cin") ou n'est pas
+   une CIN du tout (type_document = "autre"), retourne null pour les 5 champs,
+   même si des informations semblent visibles ailleurs sur le document.
+6. N'extrais JAMAIS un nom ou un prénom à partir de la zone de texte codé en
+   bas d'un verso de CIN, même si cette zone est parfaitement lisible. Seul le
+   recto fait foi.
 7. Sur une photo de qualité moyenne (grain, reflet, faible résolution), les
    caractères suivants sont fréquemment confondus : B/8, O/0, I/1/l, S/5.
-   Avant de répondre, relis chaque lettre du nom et du prénom un caractère à
-   la fois pour limiter ce type d'erreur, plutôt que de lire le mot d'un
-   seul coup d'œil global.
-8. Réponds uniquement avec les données extraites, sans commentaire ni explication.
+   Relis chaque lettre du nom et du prénom un caractère à la fois.
+8. Ne complète et ne corrige jamais un champ partiellement visible en te basant
+   sur ce qui te semblerait "logique" ou "habituel".
+9. Réponds uniquement avec les données extraites, sans commentaire ni explication.
 `;
 
 export interface CinResult {

@@ -8,6 +8,7 @@ interface CinResult {
   numero_cin: string | null
   date_fin_validite: string | null
   warnings?: { field: string; message: string }[]
+  type_document?: string | null
 }
 
 interface HistoryEntry {
@@ -326,14 +327,31 @@ function App() {
                 </div>
               )}
 
-              {errorMessage && (
+                            {errorMessage && (
                 <div className="alert-box">
                   <span className="alert-label">Échec de la lecture</span>
                   <p>{errorMessage}</p>
                 </div>
               )}
 
-              {result && (
+              {result && result.type_document === 'verso_cin' && (
+                <div className="alert-box">
+                  <span className="alert-label">Document non convenable</span>
+                  <p>
+                    Ce document semble être le <strong>verso</strong> d'une CIN. Seul le recto
+                    est traité par cette application. Merci de déposer la photo du recto.
+                  </p>
+                </div>
+              )}
+
+                           {result && result.type_document && result.type_document !== 'recto_cin' && result.type_document !== 'verso_cin' && (
+                <div className="alert-box">
+                  <span className="alert-label">Document non convenable</span>
+                  <p>Le document fourni ne peut être analysé : il ne semble pas être une CIN.</p>
+                </div>
+              )}
+
+              {result && result.type_document !== 'verso_cin' && (
                 <div className="field-card-list">
                   {FIELD_LABELS.map(({ key, label }) => {
                     const value = result[key]
