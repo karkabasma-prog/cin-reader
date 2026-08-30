@@ -127,7 +127,7 @@ L'application gère explicitement les cas suivants sans jamais planter :
 - Erreur temporaire de l'API (quota, surcharge) : nouvelle tentative automatique avec délai croissant
 - Échec définitif de l'appel à l'IA (message d'erreur clair, service toujours disponible)
 
-Le détail des tests effectués et leurs résultats sont disponibles dans [`test-pics/resultats.md`](./test-pics/resultats.md).
+Le détail des tests effectués et leurs résultats sont disponibles dans [`test-pics/results.md`](./test-pics/results.md).
 
 ---
 
